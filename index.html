@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ColdGuard — Smart Temperature Monitor</title>
+  
+  <!-- Premium Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Main Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+  
+  <!-- Inline Glassmorphic Custom Styling For Form Elements -->
+  <style>
+    /* Styling for the custom language select dropdown */
+    .lang-select-container {
+      position: relative;
+      display: inline-block;
+    }
+    
+    .lang-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background: var(--bg-input);
+      border: 1px solid var(--glass-border);
+      border-radius: var(--radius-full);
+      color: var(--text-primary);
+      padding: 6px 36px 6px 16px;
+      font-size: 0.8rem;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      outline: none;
+      transition: all var(--duration) var(--ease);
+    }
+    
+    .lang-select:hover {
+      border-color: rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.08);
+    }
+    
+    .lang-select-container::after {
+      content: '▾';
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-secondary);
+      pointer-events: none;
+      font-size: 0.75rem;
+    }
+    
+    [dir="rtl"] .lang-select {
+      padding: 6px 16px 6px 36px;
+    }
+    
+    [dir="rtl"] .lang-select-container::after {
+      right: auto;
+      left: 14px;
+    }
+    
+    .lang-select option {
+      background-color: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    /* Quick Reset/Overrides for specific gauge rendering */
+    .gauge-svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+
+    /* Beautiful spinning refresh icon animation */
+    @keyframes spin-icon {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spinning {
+      animation: spin-icon 0.8s ease-in-out;
+    }
+    
+    #refresh-btn {
+      background: var(--bg-input);
+      border: 1px solid var(--glass-border);
+      color: var(--text-primary);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--duration) var(--ease);
+      font-size: 0.9rem;
+    }
+    
+    #refresh-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: scale(1.05);
+    }
+
+    .gauge-card-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading State Overlay -->
+  <div id="app-loader" class="loading-overlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" data-i18n="loading">Loading dashboard...</div>
+  </div>
+
+  <!-- Connection Error Warning Panel -->
+  <div id="error-overlay" class="error-banner">
+    <span data-i18n="connectionError">Unable to connect to server</span>
+    <button id="retry-btn" class="retry-btn" data-i18n="retry">Retry</button>
+  </div>
+
+  <!-- Main Header -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="header-logo">❄️</div>
+      <h1 class="header-title" data-i18n="appTitle">ColdGuard</h1>
+    </div>
+    
+    <div class="header-controls">
+      <!-- Localized countdown timer -->
+      <div class="refresh-indicator">
+        <span data-i18n="refreshIn">Refresh in</span>
+        <span><strong id="refresh-timer-val">60</strong><span data-i18n="seconds">s</span></span>
+      </div>
+      
+      <!-- Manual refresh -->
+      <button id="refresh-btn" title="Refresh Now">🔄</button>
+      
+      <!-- Audio Toggle -->
+      <button id="audio-toggle" class="audio-toggle" title="Toggle Sound">
+        <span id="audio-icon">🔇</span>
+      </button>
+
+      <!-- Language selection dropdown -->
+      <div class="lang-select-container">
+        <select id="lang-selector" class="lang-select">
+          <option value="en">English</option>
+          <option value="de">Deutsch</option>
+          <option value="ar">العربية (Arabic)</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Application Body -->
+  <main id="app-content" class="main hidden">
+    
+    <!-- Stale Data Alert Box -->
+    <div id="stale-alert" class="stale-warning">
+      ⚠️ <span data-i18n="staleWarning">Data may be stale — last reading over 5 min ago</span>
+    </div>
+
+    <!-- Responsive Dashboard Grid Layout -->
+    <div class="dashboard-grid">
+      
+      <!-- CARD 1: Current Temperature Display -->
+      <section class="card status-card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span class="icon">🌡️</span>
+            <span data-i18n="currentTemp">Current Temperature</span>
+          </h2>
+        </div>
+        <div class="temp-display">
+          <div class="temp-value-wrapper">
+            <span id="current-temp-val" class="temp-value">—</span>
+            <span id="current-temp-unit" class="temp-unit"></span>
+          </div>
+          
+          <div id="status-badge" class="status-badge no-data">
+            <span class="status-dot"></span>
+            <span data-i18n="statusNoData">NO DATA</span>
+          </div>
+          
+          <div class="device-info">
+            <div><span data-i18n="device">Device</span>: <strong id="device-name">—</strong></div>
+            <div class="last-update"><span data-i18n="lastUpdate">Last update</span>: <span id="last-update-val">—</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CARD 2: Semi-Circular Gauge Display -->
+      <section class="card gauge-card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span class="icon">📊</span>
+            <span data-i18n="thresholdGauge">Threshold Gauge</span>
+          </h2>
+        </div>
+        <div class="gauge-card-container">
+          <div class="gauge-container">
+            <!-- Custom Premium SVG Semi-Circular Gauge -->
+            <svg id="gauge-svg" viewBox="0 0 200 110" class="gauge-svg">
+              <defs>
+                <!-- Gauge gradient zones -->
+                <linearGradient id="gauge-track-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="#3b82f6" />
+                  <stop offset="20%" stop-color="#10b981" />
+                  <stop offset="80%" stop-color="#10b981" />
+                  <stop offset="100%" stop-color="#ef4444" />
+                </linearGradient>
+              </defs>
+              
+              <!-- Semi-circle Track Background -->
+              <path d="M 20 90 A 80 80 0 0 1 180 90" fill="none" stroke="rgba(255, 255, 255, 0.05)" stroke-width="12" stroke-linecap="round" />
+              
+              <!-- Color Indicator Track -->
+              <path id="gauge-fill" d="M 20 90 A 80 80 0 0 1 180 90" fill="none" stroke="url(#gauge-track-grad)" stroke-width="12" stroke-linecap="round" />
+              
+              <!-- Needle Pointer Group -->
+              <g id="gauge-pointer" style="transform-origin: 100px 90px; transform: rotate(-90deg); transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);">
+                <polygon points="97,90 100,15 103,90" fill="#ffffff" />
+                <circle cx="100" cy="90" r="8" fill="#ffffff" stroke="#0a0e27" stroke-width="2" />
+              </g>
+
+              <!-- Session Peak Markers -->
+              <g id="gauge-peak-min" style="transform-origin: 100px 90px; transform: rotate(-90deg); transition: transform 0.8s ease;" class="hidden">
+                <polygon points="97,12 103,12 100,4" fill="#3b82f6" />
+              </g>
+              <g id="gauge-peak-max" style="transform-origin: 100px 90px; transform: rotate(-90deg); transition: transform 0.8s ease;" class="hidden">
+                <polygon points="97,12 103,12 100,4" fill="#ef4444" />
+              </g>
+              
+              <!-- Compressor Status Indicator -->
+              <circle id="gauge-compressor" cx="100" cy="70" r="4" fill="#64748b" opacity="0.5" />
+            </svg>
+            
+            <div class="gauge-labels">
+              <span id="gauge-val-min">1.0°C</span>
+              <span id="gauge-val-max">8.0°C</span>
+            </div>
+          </div>
+          
+          <div class="gauge-thresholds">
+            <div class="threshold-item">
+              <span class="threshold-dot low"></span>
+              <span data-i18n="belowMin">Below min</span>
+            </div>
+            <div class="threshold-item">
+              <span class="threshold-dot safe"></span>
+              <span data-i18n="safeZone">Safe zone</span>
+            </div>
+            <div class="threshold-item">
+              <span class="threshold-dot high"></span>
+              <span data-i18n="aboveMax">Above max</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CARD 3: Temperature History Chart -->
+      <section class="card chart-card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span class="icon">📈</span>
+            <span data-i18n="tempHistory">Temperature History</span>
+          </h2>
+          <!-- Chart Range Selector -->
+          <div id="range-selector" class="time-range-selector"></div>
+        </div>
+        <div class="chart-container">
+          <canvas id="temp-chart"></canvas>
+        </div>
+      </section>
+
+      <!-- CARD 4: Alarm History Logs -->
+      <section class="card alarm-card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span class="icon">🛡️</span>
+            <span data-i18n="alarmHistory">Alarm History</span>
+          </h2>
+        </div>
+        <div id="alarm-list" class="alarm-list">
+          <div class="alarm-empty">
+            <div class="empty-icon">🛡️</div>
+            <div class="empty-text" data-i18n="noAlarms">No alarms recorded</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CARD 5: Diagnostics & Telemetry -->
+      <section class="card diagnostics-card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span class="icon">⚙️</span>
+            <span data-i18n="diagnosticsTitle">Telemetry & Diagnostics</span>
+          </h2>
+          <button id="export-csv-btn" class="btn btn-outline-sm">
+            <span class="icon">📥</span> <span data-i18n="downloadCSV">Export CSV</span>
+          </button>
+        </div>
+        <div class="diagnostics-grid">
+          <div class="diag-item">
+            <div class="diag-label" data-i18n="mkt">Mean Kinetic Temp (MKT)</div>
+            <div class="diag-val"><span id="diag-mkt">—</span><span class="diag-unit">°C</span></div>
+          </div>
+          <div class="diag-item">
+            <div class="diag-label" data-i18n="uptime">Safe Range Uptime</div>
+            <div class="diag-val"><span id="diag-uptime">—</span><span class="diag-unit">%</span></div>
+          </div>
+          <div class="diag-item">
+            <div class="diag-label" data-i18n="compressorCycles">Compressor Cycles</div>
+            <div class="diag-val" id="diag-cycles">—</div>
+          </div>
+        </div>
+        
+        <!-- Predictive Breach Warning Box (Hidden by default) -->
+        <div id="forecast-warning" class="forecast-warning hidden">
+          <div class="warning-icon">⏳</div>
+          <div class="warning-text">
+            <strong data-i18n="forecastBreach">Breach Predicted</strong>
+            <div><span data-i18n="forecastBreachDesc">Breach expected in approx. </span><span id="forecast-minutes">--</span> <span data-i18n="durationMinutes">min</span></div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Chart.js and dependencies from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+  
+  <!-- Application JS Modules -->
+  <script src="js/config.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/chart.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
