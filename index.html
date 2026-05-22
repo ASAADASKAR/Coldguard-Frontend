@@ -145,6 +145,11 @@
       <!-- Manual refresh -->
       <button id="refresh-btn" title="Refresh Now">🔄</button>
       
+      <!-- Audio Toggle -->
+      <button id="audio-toggle" class="audio-toggle" title="Toggle Sound">
+        <span id="audio-icon">🔇</span>
+      </button>
+
       <!-- Language selection dropdown -->
       <div class="lang-select-container">
         <select id="lang-selector" class="lang-select">
@@ -226,6 +231,17 @@
                 <polygon points="97,90 100,15 103,90" fill="#ffffff" />
                 <circle cx="100" cy="90" r="8" fill="#ffffff" stroke="#0a0e27" stroke-width="2" />
               </g>
+
+              <!-- Session Peak Markers -->
+              <g id="gauge-peak-min" style="transform-origin: 100px 90px; transform: rotate(-90deg); transition: transform 0.8s ease;" class="hidden">
+                <polygon points="97,12 103,12 100,4" fill="#3b82f6" />
+              </g>
+              <g id="gauge-peak-max" style="transform-origin: 100px 90px; transform: rotate(-90deg); transition: transform 0.8s ease;" class="hidden">
+                <polygon points="97,12 103,12 100,4" fill="#ef4444" />
+              </g>
+              
+              <!-- Compressor Status Indicator -->
+              <circle id="gauge-compressor" cx="100" cy="70" r="4" fill="#64748b" opacity="0.5" />
             </svg>
             
             <div class="gauge-labels">
@@ -278,6 +294,42 @@
           <div class="alarm-empty">
             <div class="empty-icon">🛡️</div>
             <div class="empty-text" data-i18n="noAlarms">No alarms recorded</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CARD 5: Diagnostics & Telemetry -->
+      <section class="card diagnostics-card">
+        <div class="card-header">
+          <h2 class="card-title">
+            <span class="icon">⚙️</span>
+            <span data-i18n="diagnosticsTitle">Telemetry & Diagnostics</span>
+          </h2>
+          <button id="export-csv-btn" class="btn btn-outline-sm">
+            <span class="icon">📥</span> <span data-i18n="downloadCSV">Export CSV</span>
+          </button>
+        </div>
+        <div class="diagnostics-grid">
+          <div class="diag-item">
+            <div class="diag-label" data-i18n="mkt">Mean Kinetic Temp (MKT)</div>
+            <div class="diag-val"><span id="diag-mkt">—</span><span class="diag-unit">°C</span></div>
+          </div>
+          <div class="diag-item">
+            <div class="diag-label" data-i18n="uptime">Safe Range Uptime</div>
+            <div class="diag-val"><span id="diag-uptime">—</span><span class="diag-unit">%</span></div>
+          </div>
+          <div class="diag-item">
+            <div class="diag-label" data-i18n="compressorCycles">Compressor Cycles</div>
+            <div class="diag-val" id="diag-cycles">—</div>
+          </div>
+        </div>
+        
+        <!-- Predictive Breach Warning Box (Hidden by default) -->
+        <div id="forecast-warning" class="forecast-warning hidden">
+          <div class="warning-icon">⏳</div>
+          <div class="warning-text">
+            <strong data-i18n="forecastBreach">Breach Predicted</strong>
+            <div><span data-i18n="forecastBreachDesc">Breach expected in approx. </span><span id="forecast-minutes">--</span> <span data-i18n="durationMinutes">min</span></div>
           </div>
         </div>
       </section>

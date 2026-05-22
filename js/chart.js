@@ -23,36 +23,59 @@ const TempChart = (() => {
 
     // Create a beautiful background gradient
     const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-    // Greenish-blue theme gradient
     gradient.addColorStop(0, 'rgba(20, 184, 166, 0.4)');
     gradient.addColorStop(0.5, 'rgba(20, 184, 166, 0.1)');
     gradient.addColorStop(1, 'rgba(20, 184, 166, 0.0)');
 
-    const chartData = {
-      labels: labels,
-      datasets: [{
-        label: I18n.t('currentTemp'),
-        data: temperatures,
-        borderColor: '#14b8a6', // Teal 500
-        borderWidth: 3,
-        pointBackgroundColor: '#14b8a6',
-        pointBorderColor: '#ffffff',
-        pointBorderWidth: 1.5,
-        pointRadius: readings.length > 50 ? 0 : 3,
-        pointHoverRadius: 6,
-        pointHoverBackgroundColor: '#14b8a6',
+    const chartDatasets = [{
+      label: I18n.t('currentTemp'),
+      data: temperatures.map((temp, i) => ({ x: labels[i], y: temp })),
+      borderColor: '#14b8a6', // Teal 500
+      borderWidth: 3,
+      pointBackgroundColor: '#14b8a6',
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 1.5,
+      pointRadius: readings.length > 50 ? 0 : 3,
+      pointHoverRadius: 6,
+      pointHoverBackgroundColor: '#14b8a6',
+      pointHoverBorderColor: '#ffffff',
+      pointHoverBorderWidth: 2,
+      fill: true,
+      backgroundColor: gradient,
+      tension: 0.3,
+    }];
+
+    // Client-side ML/Regression forecasting projection
+    const forecast = Utils.predictFutureTrend(readings);
+    if (forecast && forecast.points.length > 0) {
+      const lastReading = readings[readings.length - 1];
+      const forecastPoints = [
+        { x: new Date(lastReading.timestamp), y: lastReading.temperature },
+        ...forecast.points.map(pt => ({ x: new Date(pt.timestamp), y: pt.temperature }))
+      ];
+
+      chartDatasets.push({
+        label: I18n.t('predictedTemp'),
+        data: forecastPoints,
+        borderColor: 'rgba(139, 92, 246, 0.7)', // Purple 500
+        borderWidth: 2,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        pointHoverBackgroundColor: 'rgba(139, 92, 246, 1)',
         pointHoverBorderColor: '#ffffff',
-        pointHoverBorderWidth: 2,
-        fill: true,
-        backgroundColor: gradient,
+        pointHoverBorderWidth: 1.5,
+        fill: false,
         tension: 0.3,
-      }]
-    };
+      });
+    }
 
     // Chart Configuration
     const config = {
       type: 'line',
-      data: chartData,
+      data: {
+        datasets: chartDatasets
+      },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -85,11 +108,18 @@ const TempChart = (() => {
             },
             callbacks: {
               title: (context) => {
-                const date = context[0].raw ? new Date(context[0].label) : new Date();
+                const rawObj = context[0].raw;
+                const date = (rawObj && rawObj.x) ? rawObj.x : new Date(context[0].label);
                 return Utils.formatDateTime(date.toISOString());
               },
               label: (context) => {
-                const temp = context.raw;
+                const rawObj = context.raw;
+                const temp = (rawObj && typeof rawObj.y === 'number') ? rawObj.y : rawObj;
+                
+                if (context.datasetIndex === 1) {
+                  return `${I18n.t('predictedTemp')}: ${temp.toFixed(1)}°C`;
+                }
+
                 const readingIndex = context.dataIndex;
                 const reading = readings[readingIndex];
                 const statusStr = reading ? ` (${I18n.t(getStatusKey(reading.status))})` : '';

@@ -59,6 +59,20 @@ const TRANSLATIONS = Object.freeze({
 
     // Loading
     loading: 'Loading dashboard...',
+
+    // Next-Level Additions
+    diagnosticsTitle: 'Telemetry & Diagnostics',
+    mkt: 'Mean Kinetic Temp (MKT)',
+    uptime: 'Safe Range Uptime',
+    compressorCycles: 'Compressor Cycles',
+    downloadCSV: 'Export CSV',
+    soundOn: 'Sound: On',
+    soundOff: 'Sound: Off',
+    predictedTemp: 'Forecast (2h)',
+    forecastBreach: 'Breach Predicted',
+    forecastBreachDesc: 'Breach expected in approx. ',
+    active: 'Active',
+    inactive: 'Inactive',
   },
 
   de: {
@@ -107,6 +121,20 @@ const TRANSLATIONS = Object.freeze({
     retry: 'Erneut versuchen',
 
     loading: 'Dashboard wird geladen...',
+
+    // Next-Level Additions
+    diagnosticsTitle: 'Telemetrie & Diagnose',
+    mkt: 'Mittlere kinetische Temp. (MKT)',
+    uptime: 'Sichere Betriebszeit',
+    compressorCycles: 'Kompressor-Zyklen',
+    downloadCSV: 'CSV exportieren',
+    soundOn: 'Ton: Ein',
+    soundOff: 'Ton: Aus',
+    predictedTemp: 'Vorhersage (2h)',
+    forecastBreach: 'Grenzüberschreitung vorhergesagt',
+    forecastBreachDesc: 'Überschreitung erwartet in ca. ',
+    active: 'Aktiv',
+    inactive: 'Inaktiv',
   },
 
   ar: {
@@ -155,6 +183,20 @@ const TRANSLATIONS = Object.freeze({
     retry: 'إعادة المحاولة',
 
     loading: 'جاري تحميل لوحة المعلومات...',
+
+    // Next-Level Additions
+    diagnosticsTitle: 'الاتصال والتشخيص',
+    mkt: 'متوسط درجة الحرارة الحركية',
+    uptime: 'وقت التشغيل الآمن',
+    compressorCycles: 'دورات الضاغط',
+    downloadCSV: 'تصدير CSV',
+    soundOn: 'الصوت: مفعل',
+    soundOff: 'الصوت: صامت',
+    predictedTemp: 'التنبؤ (ساعتين)',
+    forecastBreach: 'توقع تجاوز الحدود',
+    forecastBreachDesc: 'التجاوز متوقع خلال تقريباً ',
+    active: 'نشط',
+    inactive: 'غير نشط',
   },
 });
 

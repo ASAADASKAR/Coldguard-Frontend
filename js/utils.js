@@ -137,6 +137,143 @@ const Utils = (() => {
     };
   }
 
+  /**
+   * Calculate the Mean Kinetic Temperature (MKT) for a series of readings.
+   * Standard activation energy (dH) is 83.144 kJ/mol.
+   * Gas constant (R) is 0.0083144 kJ/mol*K.
+   * dH / R = 10000 K.
+   * @param {Array} readings - Array of temperature readings.
+   * @returns {number|null} MKT in Celsius.
+   */
+  function calculateMKT(readings) {
+    if (!readings || readings.length === 0) return null;
+
+    const DH_R = 10000.0; // dH / R in Kelvin
+    let sumExp = 0;
+    let validCount = 0;
+
+    for (const r of readings) {
+      if (r.temperature === null || isNaN(r.temperature)) continue;
+      const tempKelvin = r.temperature + 273.15;
+      sumExp += Math.exp(-DH_R / tempKelvin);
+      validCount++;
+    }
+
+    if (validCount === 0) return null;
+
+    const mktKelvin = DH_R / -Math.log(sumExp / validCount);
+    return mktKelvin - 273.15; // Convert back to Celsius
+  }
+
+  /**
+   * Fits a linear regression trend line to the last N readings
+   * and projects temperature readings into the future.
+   * Also computes predictions on bounds crossings (if any).
+   * @param {Array} readings - Current history data.
+   * @param {number} minutesIntoFuture - Projection timeline duration (default 120m).
+   * @param {number} N - Number of recent elements to evaluate (default 12 = 2 hours).
+   * @returns {object|null}
+   */
+  function predictFutureTrend(readings, minutesIntoFuture = 120, N = 12) {
+    if (!readings || readings.length < 2) return null;
+
+    // Capture the recent trend (last N points)
+    const recent = readings.slice(-Math.min(N, readings.length));
+    
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    const count = recent.length;
+
+    // Use seconds from first recent point as X coordinates to avoid float issues
+    const t0 = new Date(recent[0].timestamp).getTime() / 1000;
+
+    for (const r of recent) {
+      const x = (new Date(r.timestamp).getTime() / 1000) - t0;
+      const y = r.temperature;
+      sumX += x;
+      sumY += y;
+      sumXY += x * y;
+      sumX2 += x * x;
+    }
+
+    const denominator = (count * sumX2) - (sumX * sumX);
+    if (denominator === 0) return null;
+
+    const slope = ((count * sumXY) - (sumX * sumY)) / denominator; // Change in °C per second
+    const intercept = (sumY - (slope * sumX)) / count;
+
+    const lastReading = readings[readings.length - 1];
+    const lastTime = new Date(lastReading.timestamp);
+    const lastX = (lastTime.getTime() / 1000) - t0;
+
+    const forecastPoints = [];
+    const stepMin = 10; // Generate prediction points every 10 min
+    const steps = Math.ceil(minutesIntoFuture / stepMin);
+
+    for (let i = 1; i <= steps; i++) {
+      const futureTime = new Date(lastTime.getTime() + i * stepMin * 60 * 1000);
+      const futureX = lastX + (i * stepMin * 60);
+      const predictedTemp = (slope * futureX) + intercept;
+
+      // Clamp within realistic sensor bounds
+      const clampedTemp = Math.min(Math.max(predictedTemp, CONFIG.SENSOR_RANGE.MIN), CONFIG.SENSOR_RANGE.MAX);
+
+      forecastPoints.push({
+        temperature: clampedTemp,
+        timestamp: futureTime.toISOString(),
+        isForecast: true,
+        status: 'OK' // Default status
+      });
+    }
+
+    // Scan the forecast path to predict exact breaches
+    let breach = null;
+    for (const pt of forecastPoints) {
+      if (pt.temperature > CONFIG.THRESHOLDS.MAX) {
+        breach = {
+          minutes: Math.round((new Date(pt.timestamp) - lastTime) / 60_000),
+          temperature: pt.temperature,
+          type: CONFIG.STATUS.ALARM_HIGH
+        };
+        break;
+      } else if (pt.temperature < CONFIG.THRESHOLDS.MIN) {
+        breach = {
+          minutes: Math.round((new Date(pt.timestamp) - lastTime) / 60_000),
+          temperature: pt.temperature,
+          type: CONFIG.STATUS.ALARM_LOW
+        };
+        break;
+      }
+    }
+
+    return {
+      points: forecastPoints,
+      slopePerMinute: slope * 60,
+      breach: breach
+    };
+  }
+
+  /**
+   * Computes the maximum and minimum readings in a history set.
+   * @param {Array} readings - Array of readings.
+   * @returns {object} { min, max }
+   */
+  function getPeaks(readings) {
+    if (!readings || readings.length === 0) return { min: null, max: null };
+    let min = Infinity;
+    let max = -Infinity;
+
+    for (const r of readings) {
+      if (r.temperature === null || isNaN(r.temperature)) continue;
+      if (r.temperature < min) min = r.temperature;
+      if (r.temperature > max) max = r.temperature;
+    }
+
+    return {
+      min: min === Infinity ? null : min,
+      max: max === -Infinity ? null : max
+    };
+  }
+
   return Object.freeze({
     formatTime,
     formatDateTime,
@@ -145,5 +282,9 @@ const Utils = (() => {
     isStale,
     animateValue,
     debounce,
+    calculateMKT,
+    predictFutureTrend,
+    getPeaks,
   });
 })();
+

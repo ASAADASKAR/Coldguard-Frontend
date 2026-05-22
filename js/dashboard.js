@@ -46,6 +46,9 @@ const Dashboard = (() => {
       gaugeFill: document.getElementById('gauge-fill'),
       gaugeValMin: document.getElementById('gauge-val-min'),
       gaugeValMax: document.getElementById('gauge-val-max'),
+      gaugePeakMin: document.getElementById('gauge-peak-min'),
+      gaugePeakMax: document.getElementById('gauge-peak-max'),
+      gaugeCompressor: document.getElementById('gauge-compressor'),
       
       // Chart Card
       chartCanvas: document.getElementById('temp-chart'),
@@ -53,8 +56,120 @@ const Dashboard = (() => {
       
       // Alarms Card
       alarmList: document.getElementById('alarm-list'),
+
+      // Diagnostics & Telemetry
+      diagMkt: document.getElementById('diag-mkt'),
+      diagUptime: document.getElementById('diag-uptime'),
+      diagCycles: document.getElementById('diag-cycles'),
+      exportCsvBtn: document.getElementById('export-csv-btn'),
+      forecastWarning: document.getElementById('forecast-warning'),
+      forecastMinutes: document.getElementById('forecast-minutes'),
+
+      // Audio Toggle
+      audioToggle: document.getElementById('audio-toggle'),
+      audioIcon: document.getElementById('audio-icon'),
     };
   }
+
+  // Audio Engine
+  const AudioEngine = (() => {
+    let ctx = null;
+    let enabled = false;
+    let alarmOscillator = null;
+    let alarmGain = null;
+    let pulseInterval = null;
+
+    function init() {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      ctx = new AudioContext();
+    }
+
+    function toggle() {
+      enabled = !enabled;
+      if (enabled && !ctx) init();
+      if (enabled && ctx && ctx.state === 'suspended') ctx.resume();
+      
+      if (!enabled) stopAlarm();
+      return enabled;
+    }
+
+    function playRefreshChime() {
+      if (!enabled || !ctx) return;
+      
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+      osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.1);
+      
+      gain.gain.setValueAtTime(0, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1);
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.start();
+      osc.stop(ctx.currentTime + 1);
+    }
+
+    function playAlarm(status) {
+      if (!enabled || !ctx) return;
+      
+      if (status !== CONFIG.STATUS.ALARM_HIGH && status !== CONFIG.STATUS.ALARM_LOW) {
+        stopAlarm();
+        return;
+      }
+      
+      if (!alarmOscillator) {
+        alarmOscillator = ctx.createOscillator();
+        alarmGain = ctx.createGain();
+        alarmOscillator.connect(alarmGain);
+        alarmGain.connect(ctx.destination);
+        alarmOscillator.start();
+        
+        pulseInterval = setInterval(() => {
+           if (ctx && alarmGain) {
+             const now = ctx.currentTime;
+             if (status === CONFIG.STATUS.ALARM_HIGH) {
+                alarmGain.gain.cancelScheduledValues(now);
+                alarmGain.gain.setValueAtTime(0.05, now);
+                alarmGain.gain.linearRampToValueAtTime(0.2, now + 0.2);
+                alarmGain.gain.linearRampToValueAtTime(0.05, now + 0.5);
+             } else {
+                alarmGain.gain.cancelScheduledValues(now);
+                alarmGain.gain.setValueAtTime(0.01, now);
+                alarmGain.gain.linearRampToValueAtTime(0.08, now + 1);
+                alarmGain.gain.linearRampToValueAtTime(0.01, now + 2);
+             }
+           }
+        }, status === CONFIG.STATUS.ALARM_HIGH ? 500 : 2000);
+      }
+      
+      if (status === CONFIG.STATUS.ALARM_HIGH) {
+        alarmOscillator.type = 'sawtooth';
+        alarmOscillator.frequency.setValueAtTime(110, ctx.currentTime); // Deep A2
+      } else {
+        alarmOscillator.type = 'sine';
+        alarmOscillator.frequency.setValueAtTime(1046.50, ctx.currentTime); // C6 crystal hum
+      }
+    }
+
+    function stopAlarm() {
+      if (pulseInterval) clearInterval(pulseInterval);
+      if (alarmOscillator) {
+        alarmOscillator.stop();
+        alarmOscillator.disconnect();
+        alarmGain.disconnect();
+        alarmOscillator = null;
+        alarmGain = null;
+      }
+    }
+
+    return { toggle, playRefreshChime, playAlarm, isEnabled: () => enabled };
+  })();
 
   /**
    * Initialize the dashboard application.
@@ -73,6 +188,21 @@ const Dashboard = (() => {
     dom.refreshBtn.addEventListener('click', () => refresh(true));
     dom.retryBtn.addEventListener('click', () => refresh(true));
     setupRangeSelector();
+    
+    if (dom.audioToggle) {
+      dom.audioToggle.addEventListener('click', () => {
+        const isEnabled = AudioEngine.toggle();
+        dom.audioToggle.classList.toggle('active', isEnabled);
+        if (dom.audioIcon) {
+          dom.audioIcon.textContent = isEnabled ? '🔊' : '🔇';
+          dom.audioIcon.title = isEnabled ? I18n.t('soundOn') : I18n.t('soundOff');
+        }
+      });
+    }
+
+    if (dom.exportCsvBtn) {
+      dom.exportCsvBtn.addEventListener('click', exportToCSV);
+    }
 
     // Load first batch of data
     await refresh(false);
@@ -145,6 +275,53 @@ const Dashboard = (() => {
     // Update gauge threshold texts
     if (dom.gaugeValMin) dom.gaugeValMin.textContent = `${CONFIG.THRESHOLDS.MIN.toFixed(1)}°C`;
     if (dom.gaugeValMax) dom.gaugeValMax.textContent = `${CONFIG.THRESHOLDS.MAX.toFixed(1)}°C`;
+
+    // Audio status translation
+    if (dom.audioIcon && dom.audioToggle) {
+      dom.audioToggle.title = AudioEngine.isEnabled() ? I18n.t('soundOn') : I18n.t('soundOff');
+    }
+  }
+
+  function calculateUptime(readings) {
+    if (!readings || readings.length === 0) return 0;
+    let safeCount = 0;
+    for (const r of readings) {
+      if (r.temperature >= CONFIG.THRESHOLDS.MIN && r.temperature <= CONFIG.THRESHOLDS.MAX) {
+        safeCount++;
+      }
+    }
+    return (safeCount / readings.length) * 100;
+  }
+
+  function calculateCycles(readings) {
+    if (!readings || readings.length < 3) return 0;
+    let cycles = 0;
+    // Simple peak detection to estimate compressor cycles
+    for (let i = 1; i < readings.length - 1; i++) {
+      if (readings[i].temperature > readings[i-1].temperature && readings[i].temperature > readings[i+1].temperature) {
+        cycles++;
+      }
+    }
+    return cycles;
+  }
+
+  function exportToCSV() {
+    Api.getHistory(activeHours).then(readings => {
+      if (!readings || readings.length === 0) return;
+      
+      const header = "Timestamp,Temperature,Unit,Status\n";
+      const rows = readings.map(r => `${new Date(r.timestamp).toISOString()},${r.temperature},${r.unit},${r.status}`).join('\n');
+      
+      const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `coldguard-export-${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }).catch(err => console.error("CSV Export Error:", err));
   }
 
   /**
@@ -170,11 +347,46 @@ const Dashboard = (() => {
       // Process current reading card & Gauge
       updateCurrentReading(currentData, animate);
 
-      // Process Chart
+      // Process Diagnostics & Telemetry
+      const mkt = Utils.calculateMKT(historyData);
+      if (dom.diagMkt) {
+        dom.diagMkt.textContent = mkt !== null ? mkt.toFixed(2) : '—';
+      }
+      
+      if (dom.diagUptime) {
+        dom.diagUptime.textContent = calculateUptime(historyData).toFixed(1);
+      }
+      
+      if (dom.diagCycles) {
+        dom.diagCycles.textContent = calculateCycles(historyData);
+      }
+
+      // Update Gauge Peaks & Compressor Status
+      updateGaugeExtra(historyData, currentData);
+
+      // Process Chart and Forecast
       TempChart.render(dom.chartCanvas, historyData);
+      const forecast = Utils.predictFutureTrend(historyData);
+      if (forecast && forecast.breach) {
+        dom.forecastWarning.classList.remove('hidden');
+        dom.forecastMinutes.textContent = forecast.breach.minutes;
+        if (forecast.breach.type === CONFIG.STATUS.ALARM_LOW) {
+           dom.forecastWarning.classList.add('frost');
+        } else {
+           dom.forecastWarning.classList.remove('frost');
+        }
+      } else {
+        dom.forecastWarning.classList.add('hidden');
+      }
 
       // Process Alarms
       updateAlarms(alarmsData);
+      
+      // Update ambient background based on current status
+      updateAurora(currentData ? currentData.status : null);
+      
+      // Play Audio Chime
+      AudioEngine.playRefreshChime();
 
       // Reset auto-refresh timer countdown
       countdownSeconds = CONFIG.REFRESH_INTERVAL_MS / 1000;
@@ -246,6 +458,23 @@ const Dashboard = (() => {
 
     // Update circular SVG Gauge
     updateGauge(currentTemperature);
+    
+    // Play ongoing alarm sound if necessary
+    AudioEngine.playAlarm(data.status);
+  }
+
+  function updateAurora(status) {
+    dom.html.classList.remove('aurora-safe', 'aurora-heat', 'aurora-frost');
+    dom.html.style.background = ''; // remove inline styles if any
+    document.body.className = '';
+    
+    if (status === CONFIG.STATUS.OK) {
+      document.body.classList.add('aurora-safe');
+    } else if (status === CONFIG.STATUS.ALARM_HIGH) {
+      document.body.classList.add('aurora-heat');
+    } else if (status === CONFIG.STATUS.ALARM_LOW) {
+      document.body.classList.add('aurora-frost');
+    }
   }
 
   /**
@@ -288,6 +517,41 @@ const Dashboard = (() => {
 
     if (dom.gaugeFill) {
       dom.gaugeFill.style.stroke = fillColor;
+    }
+  }
+
+  function updateGaugeExtra(readings, currentData) {
+    if (!readings || readings.length === 0) return;
+    
+    // Peak Markers
+    const peaks = Utils.getPeaks(readings);
+    const minSens = CONFIG.SENSOR_RANGE.MIN;
+    const maxSens = CONFIG.SENSOR_RANGE.MAX;
+    
+    if (peaks.min !== null && dom.gaugePeakMin) {
+      dom.gaugePeakMin.classList.remove('hidden');
+      const clampMin = Math.min(Math.max(peaks.min, minSens), maxSens);
+      const pctMin = (clampMin - minSens) / (maxSens - minSens);
+      const rotMin = -90 + (pctMin * 180);
+      dom.gaugePeakMin.style.transform = `rotate(${rotMin}deg)`;
+    }
+    
+    if (peaks.max !== null && dom.gaugePeakMax) {
+      dom.gaugePeakMax.classList.remove('hidden');
+      const clampMax = Math.min(Math.max(peaks.max, minSens), maxSens);
+      const pctMax = (clampMax - minSens) / (maxSens - minSens);
+      const rotMax = -90 + (pctMax * 180);
+      dom.gaugePeakMax.style.transform = `rotate(${rotMax}deg)`;
+    }
+    
+    // Compressor Status indicator (simple heuristic: if cooling down or safe zone and active)
+    if (dom.gaugeCompressor && currentData) {
+      const isCooling = (previousTemperature !== null && currentTemperature < previousTemperature) || (currentTemperature > CONFIG.THRESHOLDS.MAX);
+      if (isCooling) {
+        dom.gaugeCompressor.classList.add('compressor-active');
+      } else {
+        dom.gaugeCompressor.classList.remove('compressor-active');
+      }
     }
   }
 
